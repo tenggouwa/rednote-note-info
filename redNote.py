@@ -5,7 +5,7 @@ import undetected_chromedriver as uc
 
 def extract_note_detail(browser, url):
     browser.get(url)
-    time.sleep(2)
+    time.sleep(5)
 
     soup = BeautifulSoup(browser.page_source, 'html.parser')
 
@@ -59,59 +59,67 @@ def scrape_notes(keyword='露营', max_scroll=6, max_notes=10):
     print("🔐 请在弹出的浏览器中登录小红书，登录完成后按回车继续...")
     input("✅ 登录完成后按回车...")
 
-    # 滚动加载页面内容
-    for _ in range(max_scroll):
-        browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)
-
-    soup = BeautifulSoup(browser.page_source, 'html.parser')
-    cards = soup.find_all('section', class_='note-item')
-
-    print(f"📦 搜索页共找到 {len(cards)} 条内容")
-
     results = []
+    seen_links = set()
 
-    for idx, card in enumerate(cards):
+    # 滚动加载页面内容
+    for scroll_count in range(max_scroll):
+        browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(5)
+        # 每次滚动后，增量更新数据
+        soup = BeautifulSoup(browser.page_source, 'html.parser')
+        cards = soup.find_all('section', class_='note-item')
+        print(f"🔄 滚动 {scroll_count + 1}/{max_scroll} 次后，页面上共有 {len(cards)} 条内容")
+
+        for card in cards:
+            try:
+                # 列表页：提取标题、封面、作者、链接
+                title_tag = card.find('a', class_='title')
+                title = title_tag.get_text(strip=True) if title_tag else ''
+
+                img_tag = card.find('a', class_='cover').find('img')
+                image = img_tag['src'] if img_tag else ''
+
+                author_span = card.find('span', class_='name')
+                author = author_span.get_text(strip=True) if author_span else ''
+
+                link_tag = card.find('a', class_='cover')
+                relative_url = link_tag['href'] if link_tag else ''
+                link = 'https://www.xiaohongshu.com' + relative_url
+
+                if link in seen_links:
+                    continue
+
+                note = {
+                    'title': title,
+                    'image': image,
+                    'author': author,
+                    'link': link
+                }
+
+                print(f"➡️ 抓取详情页: {title}")
+                detail = extract_note_detail(browser, link)
+                note.update(detail)
+
+                results.append(note)
+                seen_links.add(link)
+
+                if len(results) >= max_notes:
+                    break
+
+            except Exception as e:
+                print(f"❌ 抓取失败: {e}")
+                continue
+
         if len(results) >= max_notes:
             break
-        try:
-            # 列表页：提取标题、封面、作者、链接
-            title_tag = card.find('a', class_='title')
-            title = title_tag.get_text(strip=True) if title_tag else ''
-
-            img_tag = card.find('a', class_='cover').find('img')
-            image = img_tag['src'] if img_tag else ''
-
-            author_span = card.find('span', class_='name')
-            author = author_span.get_text(strip=True) if author_span else ''
-
-            link_tag = card.find('a', class_='cover')
-            relative_url = link_tag['href'] if link_tag else ''
-            link = 'https://www.xiaohongshu.com' + relative_url
-
-            note = {
-                'title': title,
-                'image': image,
-                'author': author,
-                'link': link
-            }
-
-            print(f"➡️ 抓取详情页 {idx + 1}: {title}")
-            detail = extract_note_detail(browser, link)
-            note.update(detail)
-
-            results.append(note)
-
-        except Exception as e:
-            print(f"❌ 抓取失败: {e}")
-            continue
 
     browser.quit()
 
     return results
 
 if __name__ == "__main__":
-    data = scrape_notes(keyword='露营', max_scroll=20, max_notes=150)
+    data = scrape_notes(keyword='露营', max_scroll=40, max_notes=150)
 
     with open('xhs_camping_data.json', 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
